@@ -11,25 +11,34 @@ import io.ktor.routing.get
 import io.ktor.routing.routing
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import org.slf4j.LoggerFactory
+
+val channel = Channel<String>()
 
 fun Routing.root() {
     val logger = LoggerFactory.getLogger(this.javaClass)
 
-    get("/") {
+    get("/{message}") {
         coroutineScope {
             launch {
-                delay(2_000)
-                logger.info("end")
+                val message = call.parameters["message"].toString()
+                channel.send(message)
+                logger.info("Message $message sent")
             }
-
-            logger.info("out")
-
         }
         call.respond(HttpStatusCode.NoContent)
+    }
+}
+
+fun CoroutineScope.doWork(id: Int, channel: ReceiveChannel<String>) = launch {
+    val logger = LoggerFactory.getLogger(this.javaClass)
+
+    for (msg in channel) {
+        delay(1_000)
+        logger.info("Worker #$id processed $msg")
     }
 }
 
@@ -41,12 +50,21 @@ fun Application.mainModule() {
     }
 }
 
-fun main() {
+suspend fun main() {
     val port = System.getenv("PORT")?.toInt() ?: 8080
 
-    embeddedServer(
-            factory = Netty,
-            port = port,
-            module = Application::mainModule
-    ).start(wait = true)
+    coroutineScope {
+
+        launch {
+            repeat(20) {
+                doWork(it, channel)
+            }
+        }
+
+        embeddedServer(
+                factory = Netty,
+                port = port,
+                module = Application::mainModule
+        ).start(wait = true)
+    }
 }
