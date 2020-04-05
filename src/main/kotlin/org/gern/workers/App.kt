@@ -13,22 +13,21 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.Channel.Factory.UNLIMITED
 import kotlinx.coroutines.channels.ReceiveChannel
 import org.slf4j.LoggerFactory
 
-val channel = Channel<String>()
+val channel = Channel<String>(UNLIMITED)
 
 fun Routing.root() {
     val logger = LoggerFactory.getLogger(this.javaClass)
 
     get("/{message}") {
-        coroutineScope {
-            launch {
-                val message = call.parameters["message"].toString()
-                channel.send(message)
-                logger.info("Message $message sent")
-            }
-        }
+        val message = call.parameters["message"].toString()
+
+        channel.send(message)
+        logger.info("Message $message sent")
+
         call.respond(HttpStatusCode.NoContent)
     }
 }
@@ -43,8 +42,6 @@ fun CoroutineScope.doWork(id: Int, channel: ReceiveChannel<String>) = launch {
 }
 
 fun Application.mainModule() {
-    install(CallLogging)
-
     routing {
         root()
     }
@@ -54,11 +51,8 @@ suspend fun main() {
     val port = System.getenv("PORT")?.toInt() ?: 8080
 
     coroutineScope {
-
-        launch {
-            repeat(20) {
-                doWork(it, channel)
-            }
+        repeat(200) {
+            doWork(it, channel)
         }
 
         embeddedServer(
